@@ -7,14 +7,12 @@ import numpy as np
 from datetime import datetime
 import sys
 
-# Tentar carregar o classificador Haar Cascade para detecção de rostos
 try:
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    face_detector = cv2.dnn.readNetFromCaffe('deploy.prototxt', 'res10_300x300_ssd_iter_140000.caffemodel')
 except cv2.error as e:
-    print("Erro ao carregar o classificador Haar Cascade:", e)
+    print("Erro ao carregar o detector de rosto:", e)
     sys.exit(1)
 
-# Tentar carregar o modelo de reconhecimento de emoções
 try:
     emotion_model = load_model('emotion_detection_model.h5')
 except OSError as e:
@@ -45,24 +43,21 @@ def start_emotion_detection(source, label_video, textbox):
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            # Detectar rostos no frame
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+            # Detectar rostos na imagem
+            blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+            face_detector.setInput(blob)
+            detections = face_detector.forward()
 
-            # Processar cada rosto detectado
-            for (x, y, w, h) in faces:
-                face_roi = frame[y:y+h, x:x+w]
-                
-                # Calcular a área do rosto
-                face_area = w * h
-
-                # Definir uma confiança mínima para aceitar a detecção
-                min_confidence = 5000  # Ajuste conforme necessário
-
-                if face_area > min_confidence:
+            for i in range(detections.shape[2]):
+                confidence = detections[0, 0, i, 2]
+                if confidence > 0.5:  # Ajuste o limiar de confiança conforme necessário
+                    box = detections[0, 0, i, 3:7] * np.array([frame.shape[1], frame.shape[0], frame.shape[1], frame.shape[0]])
+                    (startX, startY, endX, endY) = box.astype("int")
+                    face_roi = frame[startY:endY, startX:endX]
                     emotion = predict_emotion(face_roi)
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-                    cv2.rectangle(frame, (x, y - 40), (x + w, y), (0, 0, 255), -1)
-                    cv2.putText(frame, emotion, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                    cv2.rectangle(frame, (startX, startY), (endX, endY), (255, 0, 0), 2)
+                    cv2.rectangle(frame, (startX, startY - 40), (endX, startY), (0, 0, 255), -1)
+                    cv2.putText(frame, emotion, (startX, startY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                     timestamp = datetime.now() - start_time
                     textbox.insert(tk.END, f'{timestamp}: {emotion}\n')
                     textbox.see(tk.END)
@@ -91,19 +86,31 @@ def select_webcam(label_video, textbox):
 root = tk.Tk()
 root.title("Detecção de Emoções")
 
-video_label = ttk.Label(root)
-video_label.pack()
+root.geometry("700x700")
+root.configure(bg="#F0F0F0")
 
-textbox = tk.Text(root, width=50, height=10)
+video_label = ttk.Label(root, background="#000000")
+video_label.pack(pady=10)
+
+textbox_frame = tk.Frame(root, bg="#F0F0F0")
+textbox_frame.pack(pady=10)
+
+textbox = tk.Text(textbox_frame, width=60, height=10, font=("Arial", 12), bg="#FFFFFF", bd=0)
 textbox.pack()
 
-select_video_button = ttk.Button(root, text="Selecionar Vídeo", command=lambda: select_source(video_label, textbox))
-select_video_button.pack(pady=5)
+button_frame = tk.Frame(root, bg="#F0F0F0")
+button_frame.pack(pady=10)
 
-select_webcam_button = ttk.Button(root, text="Usar Webcam", command=lambda: select_webcam(video_label, textbox))
-select_webcam_button.pack(pady=5)
+select_video_button = ttk.Button(button_frame, text="Selecionar Vídeo", command=lambda: select_source(video_label, textbox), style="Blue.TButton")
+select_video_button.pack(side="left", padx=10)
 
-quit_button = ttk.Button(root, text="Sair", command=root.quit)
-quit_button.pack(pady=5)
+select_webcam_button = ttk.Button(button_frame, text="Usar Webcam", command=lambda: select_webcam(video_label, textbox), style="Blue.TButton")
+select_webcam_button.pack(side="left", padx=10)
+
+quit_button = ttk.Button(root, text="Sair", command=root.quit, style="Blue.TButton")
+quit_button.pack(pady=10)
+
+style = ttk.Style()
+style.configure("Blue.TButton", padding=10, relief="flat", background="#0078D4", foreground="#000000", font=("Arial", 12), borderwidth=0)
 
 root.mainloop()
