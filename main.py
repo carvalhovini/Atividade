@@ -6,6 +6,8 @@ from tensorflow.keras.models import load_model
 import numpy as np
 from datetime import datetime
 import sys
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 try:
     face_detector = cv2.dnn.readNetFromCaffe('deploy.prototxt', 'res10_300x300_ssd_iter_140000.caffemodel')
@@ -20,6 +22,17 @@ except OSError as e:
     sys.exit(1)
 
 emotion_labels = {0: 'Raiva', 1: 'Desgosto', 2: 'Medo', 3: 'Felicidade', 4: 'Tristeza', 5: 'Surpresa', 6: 'Neutro'}
+emotion_counts = {emotion: 0 for emotion in emotion_labels.values()}
+
+def update_graphs():
+    emotions = list(emotion_counts.keys())
+    counts = list(emotion_counts.values())
+    ax.clear()
+    ax.bar(emotions, counts, color='skyblue')
+    ax.set_title('Contagem de Emoções Detectadas')
+    ax.set_xlabel('Emoções')
+    ax.set_ylabel('Contagem')
+    canvas.draw()
 
 def predict_emotion(face):
     face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
@@ -29,13 +42,11 @@ def predict_emotion(face):
     predicted_class = np.argmax(emotion_model.predict(face))
     return emotion_labels[predicted_class]
 
-def start_emotion_detection(source, label_video, textbox):
+def start_emotion_detection(source, label_video):
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         print("Erro ao abrir a fonte de vídeo.")
         return
-
-    start_time = datetime.now()
 
     def update_frame():
         nonlocal cap
@@ -55,14 +66,14 @@ def start_emotion_detection(source, label_video, textbox):
                     (startX, startY, endX, endY) = box.astype("int")
                     face_roi = frame[startY:endY, startX:endX]
                     emotion = predict_emotion(face_roi)
+                    emotion_counts[emotion] += 1
+                    update_graphs()
                     cv2.rectangle(frame, (startX, startY), (endX, endY), (255, 0, 0), 2)
                     cv2.rectangle(frame, (startX, startY - 40), (endX, startY), (0, 0, 255), -1)
                     cv2.putText(frame, emotion, (startX, startY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-                    timestamp = datetime.now() - start_time
-                    textbox.insert(tk.END, f'{timestamp}: {emotion}\n')
-                    textbox.see(tk.END)
 
-            frame = cv2.resize(frame, (640, 400))
+            # Ajustar o frame do vídeo para a resolução do label_video
+            frame = cv2.resize(frame, (label_video.winfo_width(), label_video.winfo_height()))
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame = Image.fromarray(frame)
             frame = ImageTk.PhotoImage(image=frame)
@@ -75,42 +86,45 @@ def start_emotion_detection(source, label_video, textbox):
 
     update_frame()
 
-def select_source(label_video, textbox):
+def select_source(label_video):
     source = filedialog.askopenfilename(parent=root, filetypes=[("Video files", ".mp4;.avi;*.mov")])
     if source:
-        start_emotion_detection(source, label_video, textbox)
+        start_emotion_detection(source, label_video)
 
-def select_webcam(label_video, textbox):
-    start_emotion_detection(0, label_video, textbox)
+def select_webcam(label_video):
+    start_emotion_detection(0, label_video)
 
 root = tk.Tk()
 root.title("Detecção de Emoções")
+root.attributes('-fullscreen', True)  # Abrir em tela cheia
 
-root.geometry("700x700")
-root.configure(bg="#F0F0F0")
+left_frame = tk.Frame(root, bg="#F0F0F0")
+left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-video_label = ttk.Label(root, background="#000000")
-video_label.pack(pady=10)
+fig, ax = plt.subplots(figsize=(6, 4))
+canvas = FigureCanvasTkAgg(fig, master=left_frame)
+canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-textbox_frame = tk.Frame(root, bg="#F0F0F0")
-textbox_frame.pack(pady=10)
+right_frame = tk.Frame(root, bg="#F0F0F0")
+right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-textbox = tk.Text(textbox_frame, width=60, height=10, font=("Arial", 12), bg="#FFFFFF", bd=0)
-textbox.pack()
+video_label = ttk.Label(right_frame, background="#000000")
+video_label.pack(pady=10, fill=tk.BOTH, expand=True)
 
-button_frame = tk.Frame(root, bg="#F0F0F0")
+button_frame = tk.Frame(right_frame, bg="#F0F0F0")
 button_frame.pack(pady=10)
 
-select_video_button = ttk.Button(button_frame, text="Selecionar Vídeo", command=lambda: select_source(video_label, textbox), style="Blue.TButton")
+select_video_button = ttk.Button(button_frame, text="Selecionar Vídeo", command=lambda: select_source(video_label), style="Blue.TButton")
 select_video_button.pack(side="left", padx=10)
 
-select_webcam_button = ttk.Button(button_frame, text="Usar Webcam", command=lambda: select_webcam(video_label, textbox), style="Blue.TButton")
+select_webcam_button = ttk.Button(button_frame, text="Usar Webcam", command=lambda: select_webcam(video_label), style="Blue.TButton")
 select_webcam_button.pack(side="left", padx=10)
 
-quit_button = ttk.Button(root, text="Sair", command=root.quit, style="Blue.TButton")
+quit_button = ttk.Button(right_frame, text="Sair", command=root.quit, style="Blue.TButton")
 quit_button.pack(pady=10)
 
 style = ttk.Style()
 style.configure("Blue.TButton", padding=10, relief="flat", background="#0078D4", foreground="#000000", font=("Arial", 12), borderwidth=0)
 
+update_graphs()
 root.mainloop()
